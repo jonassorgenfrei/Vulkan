@@ -90,6 +90,10 @@ private:
 	/* */
 	VkExtent2D swapChainExtent;
 
+	/* Object to View into an image 
+	 * it describes how to access the image and which part of the image to access */
+	std::vector<VkImageView> swapChainImageViews;
+
 	// -------------------------
 	// Functions
 	// -------------------------
@@ -103,6 +107,11 @@ private:
 	 * Initialize Vulkan
 	 */
 	void initVulkan();
+
+	/**
+	 * Creates a basic image view in the swap chain
+	 */
+	void createImageViews();
 
 	/**
 	 * Function that calls all the SwapChain Help Functions
