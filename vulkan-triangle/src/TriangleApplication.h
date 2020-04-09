@@ -20,6 +20,10 @@
 #include <functional>
 #include <map>
 
+// Application Header
+#include "shader.h""
+
+
 /* constants window sizes */
 const int WIDTH = 800;
 const int HEIGHT = 600;
@@ -211,6 +215,11 @@ private:
 	 * Always exavtly equal to the resolution of the window that we're drawing to
 	 */
 	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+
+	/**
+	 * Graphics Pipeline
+	 */
+	void createGraphicsPipeline();
 
 	/*
 	 * Callback Function for prototype PFN_vkDebugUtilsMessengercallbackExt

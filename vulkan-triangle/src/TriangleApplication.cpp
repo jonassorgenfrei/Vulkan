@@ -93,7 +93,11 @@ void TriangleApplication::initVulkan() {
 	// Create Swap Chain
 	createSwapChain();
 	createImageViews();
+	// Create Graphic Pipeline for rendering with Vulkan
+	createGraphicsPipeline();
 }
+
+
 
 void TriangleApplication::createImageViews()
 {
@@ -782,4 +786,8 @@ VkExtent2D TriangleApplication::chooseSwapExtent(const VkSurfaceCapabilitiesKHR&
 
 		return actualExtent;
 	}
+}
+
+void TriangleApplication::createGraphicsPipeline()
+{
 }
