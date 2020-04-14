@@ -790,4 +790,6 @@ VkExtent2D TriangleApplication::chooseSwapExtent(const VkSurfaceCapabilitiesKHR&
 
 void TriangleApplication::createGraphicsPipeline()
 {
+	Shader shader(device, "../shadercomp/vert.spv", "../shadercomp/frag.spv");
+
 }
