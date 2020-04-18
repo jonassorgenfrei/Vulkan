@@ -91,12 +91,24 @@ private:
 	std::vector<VkImage> swapChainImages;
 	/* Stores the Swap Chaine Image Format */
 	VkFormat swapChainImageFormat;
-	/* */
+	/* Swap Chain Extent Object */
 	VkExtent2D swapChainExtent;
 
-	/* Object to View into an image 
+	/** 
+	 * Object to View into an image 
 	 * it describes how to access the image and which part of the image to access */
 	std::vector<VkImageView> swapChainImageViews;
+
+	/** 
+	 * Stores the pipelineLayout which holds the information about the uniform 
+	 * variables and push constants
+	 */
+	VkPipelineLayout pipelineLayout;
+
+	/**
+	 * Render Pass Object to store Information about Framebuffers
+	 */
+	VkRenderPass renderPass;
 
 	// -------------------------
 	// Functions
@@ -220,6 +232,14 @@ private:
 	 * Graphics Pipeline
 	 */
 	void createGraphicsPipeline();
+
+	/**
+	 * Create a Renderpass object
+	 * Specifies how many color and depth buffer attachments there be,
+	 * how many samples to use for each of them and how their contents 
+	 * should be handled throughout the rendering operations
+	 */
+	void createRenderPass();
 
 	/*
 	 * Callback Function for prototype PFN_vkDebugUtilsMessengercallbackExt

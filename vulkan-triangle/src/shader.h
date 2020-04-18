@@ -61,7 +61,7 @@ public:
 		// Array to containe the Shader structs
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-
+		
 
 		// clean up temporary Shader Modules
 		vkDestroyShaderModule(device, fragShaderModule, nullptr);

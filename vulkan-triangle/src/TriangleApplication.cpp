@@ -1,4 +1,5 @@
 #include "TriangleApplication.h"
+#include "root_directory.h"
 
 /* --- Helper --- */
 
@@ -93,6 +94,8 @@ void TriangleApplication::initVulkan() {
 	// Create Swap Chain
 	createSwapChain();
 	createImageViews();
+	// create a Render Pass Object
+	createRenderPass();
 	// Create Graphic Pipeline for rendering with Vulkan
 	createGraphicsPipeline();
 }
@@ -539,7 +542,10 @@ void TriangleApplication::mainLoop() {
  * Deallocate the resources
  */
 void TriangleApplication::cleanup() {
-
+	// Destroy the Render Pipeline
+	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+	// Destroy the Render Pass Object
+	vkDestroyRenderPass(device, renderPass, nullptr);
 	// destory explicitly created image views 
 	for (auto imageView : swapChainImageViews) {
 		vkDestroyImageView(device, imageView, nullptr);
@@ -790,6 +796,219 @@ VkExtent2D TriangleApplication::chooseSwapExtent(const VkSurfaceCapabilitiesKHR&
 
 void TriangleApplication::createGraphicsPipeline()
 {
+	// Create Shader
 	Shader shader(device, "../shadercomp/vert.spv", "../shadercomp/frag.spv");
 
+	// describes the format of the vertex data that will be passed to the 
+	// vertex shader
+	// binds: spacing between data and whether the data is per-vertex or per-instance
+	// attributes descriptions: type of the attributes passed to the vertex shader which
+	//                          binding to load them from and at which offset
+	VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};								// NOTE: Empty because data is hard coded in shader 
+	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	// point to an array of structs that describe the aforementioned details for loading vertex data
+	vertexInputInfo.vertexBindingDescriptionCount = 0;
+	vertexInputInfo.pVertexBindingDescriptions = nullptr; // Optional
+	vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	vertexInputInfo.pVertexAttributeDescriptions = nullptr; // Optional
+
+	// description what kind of geometry willl be drawn from the vertices and if primitive 
+	// restart should be enabled
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	// possible memebers:
+	// VK_PRIMITIVE_TOPOLOGY_POINT_LIST - points from vertices
+	// VK_PRIMITIVE_TOPOLOGY_LINE_LIST - line from every 
+	// VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY
+	// VK_PRIMITIVE_TOPOLOGY_LINE_STRIP	- the end vertex of every line is used as start vertex for the next line
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST - traingle from every 3 vertices without reuse
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP	- the second and third vertex of every triangle are used as first two vertices of the next triangle
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY
+	// VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP_WITH_ADJACENCY
+	// VK_PRIMITIVE_TOPOLOGY_PATCH_LIST
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;	// draw Triangles 
+	// if set to True break up _STRIP by using index 0xFFFF or 0xFFFFFFFF
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+	// Setting Viewport
+	// ----------------
+	VkViewport viewport = {};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float)swapChainExtent.width;
+	viewport.height = (float)swapChainExtent.height;
+	// Depth values must be in the range [0,1]
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+
+	// Setting Scissors
+	// ---------------
+	// define in which regions pixels will actually be stored
+	// any pixels outside the scissor rectangles will be discarded by the rasterizer
+	// Like a Filter (not transform)
+	VkRect2D scissor = {};
+	scissor.offset = { 0, 0 };	// draw entire framebuffer; scissor rectangle covers everything
+	scissor.extent = swapChainExtent;
+
+	// combine viewport state
+	VkPipelineViewportStateCreateInfo viewportState = {};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;	// reference an array to allow multiple viewports on some graphics cards (needs an GPU feature enabled)
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;	// reference an array to allow multiple scissor rectangles on some graphics cards
+
+	// Rasterizer
+	// ----------
+	VkPipelineRasterizationStateCreateInfo rasterizer = {};
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	// if True: fragments that are beyond the near and far planes are clamped to them as opposed
+	// to discarding them (usefull for shadow maps); NOTE: needs a GPU feature enabled
+	rasterizer.depthClampEnable = VK_FALSE;
+	// if True: geometry never passes through the rasterizer stage (disables any output to the framebuffer)
+	rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	// Polygon drawing Mode
+	// VK_POLYGON_MODE_FILL - fill the area of the polygon with fragments
+	// VK_POLYGON_MODE_LINE - polygon edges are drawn as lines			(needs GPU feature enabled)
+	// VK_POLYGON_MODE_POINT - polygon vertices are drawn as points		(needs GPU feature enabled)
+	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	// describes the thickness of lines in terms of number fragments (max line width supported depends on the hardware and any 
+	// line thicker than 1.0f requires the wideLines GPU feature to be enabled)
+	rasterizer.lineWidth = 1.0f;
+	// Type of face culling (front culling: VK_CULL_MODE_FRONT_BIT) (front and back culling: VK_CULL_MODE_FRONT_AND_BACK) (no culling: VK_CULL_MODE_NONE)
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;	
+	// specifies the order for faces to eb considered front-facing (counter clockwise: VK_FRONT_FACE_COUNTER_CLOCKWISE)
+	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE; // Clockwise is front face
+	// the rasterizer can alter the depth values by adding a constant value o biasing them based on a fragments slope (sometimes used for shadow mapping)
+	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.depthBiasConstantFactor = 0.0f; // Optional
+	rasterizer.depthBiasClamp = 0.0f; // Optional
+	rasterizer.depthBiasSlopeFactor = 0.0f; // Optional
+
+	// Multisampling
+	// -------------
+	// one way to perform anti-aliasing
+	// needs an GPU feature enabled
+	VkPipelineMultisampleStateCreateInfo multisampling = {};
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.sampleShadingEnable = VK_FALSE;	// Disable multisampling (for now)
+	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampling.minSampleShading = 1.0f; // Optional
+	multisampling.pSampleMask = nullptr; // Optional
+	multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
+	multisampling.alphaToOneEnable = VK_FALSE; // Optional
+	
+	// Depth and Stencil Testing
+	// -------------------------
+	// Not in this Program needed
+	// VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+
+	// Color Blending 
+	// --------------
+	// contains the configuration per attached framebuffer
+	VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT; 
+	colorBlendAttachment.blendEnable = VK_FALSE;	// color is passed through unmodified
+	// IF blendEnable is TRUE: 
+	// two mixing operations are performed to compute a new color.
+	// The result is AND'd witht the colorWriteMask to determine which channels are actually passed through
+	/**
+	 *  // Enabled Alpha Blending
+	 *	colorBlendAttachment.blendEnable = VK_TRUE;
+	 *	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	 *	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	 *	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	 *	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	 *	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	 *	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	 */
+	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD; // Optional
+	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // Optional
+	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // Optional
+	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD; // Optional
+
+	// contains the global color blending settings
+	// references the array of structures for all of the framebuffers and allows to set blend constants
+	// that can be used as blend factors in the calculations
+	VkPipelineColorBlendStateCreateInfo colorBlending = {};
+	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	// enables bitwise combination for blending (will disable the color blending in VkPipelineColorBlendAttachmentState 
+	// for every attached framebuffer)
+	// Will also use the colorWriteMask to determine which channels in the framebuffer will actually be affected
+	colorBlending.logicOpEnable = VK_FALSE;
+	// sets the bitwise operation
+	colorBlending.logicOp = VK_LOGIC_OP_COPY;	// Optional
+	colorBlending.attachmentCount = 1;
+	colorBlending.pAttachments = &colorBlendAttachment;
+	colorBlending.blendConstants[0] = 0.0f;		// Optional
+	colorBlending.blendConstants[1] = 0.0f;		// Optional
+	colorBlending.blendConstants[2] = 0.0f;		// Optional
+	colorBlending.blendConstants[3] = 0.0f;		// Optional
+
+	// Dynamic State
+	// -------------
+	// fill in the dynamic States which can be changed without recreating the pipeline
+	// ignore values of the configuration and need to be specified at drawing time
+	// In this programm substitued by a nullptr
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_LINE_WIDTH
+	};
+
+	VkPipelineDynamicStateCreateInfo dynamicState = {};
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = 2;
+	dynamicState.pDynamicStates = dynamicStates;
+
+	// Pipeline Layout
+	// ---------------
+	// Specify uniform variables to be passed to the shader
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 0; // Optional
+	pipelineLayoutInfo.pSetLayouts = nullptr; // Optional
+	// Push constants 
+	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
+	pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
+
+	if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create pipeline layout!");
+	}
+
+}
+
+void TriangleApplication::createRenderPass()
+{
+	VkAttachmentDescription colorAttachment = {};
+	colorAttachment.format = swapChainImageFormat;
+	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorAttachmentRef = {};
+	colorAttachmentRef.attachment = 0;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorAttachmentRef;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 1;
+	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+
+	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create render pass!");
+	}
 }
