@@ -19,6 +19,7 @@
 #include <set>
 #include <functional>
 #include <map>
+#include <fstream>
 
 // Application Header
 #include "shader.h""
@@ -99,17 +100,18 @@ private:
 	 * it describes how to access the image and which part of the image to access */
 	std::vector<VkImageView> swapChainImageViews;
 
+	/**
+	 * Render Pass Object to store Information about Framebuffers
+	 */
+	VkRenderPass renderPass;
+
 	/** 
 	 * Stores the pipelineLayout which holds the information about the uniform 
 	 * variables and push constants
 	 */
 	VkPipelineLayout pipelineLayout;
 
-	/**
-	 * Render Pass Object to store Information about Framebuffers
-	 */
-	VkRenderPass renderPass;
-
+	VkPipeline graphicsPipeline;
 	// -------------------------
 	// Functions
 	// -------------------------
@@ -123,6 +125,16 @@ private:
 	 * Initialize Vulkan
 	 */
 	void initVulkan();
+
+	/**
+	 * Main Loop iterates until Window ist closed
+	 */
+	void mainLoop();
+
+	/**
+	 * Deallocate the resources
+	 */
+	void cleanup();
 
 	/**
 	 * Creates a basic image view in the swap chain
@@ -180,16 +192,6 @@ private:
 	 * Initilaize Debugging
 	 */
 	void setupDebugCallback();
-
-	/**
-	 * Main Loop iterates until Window ist closed
-	 */
-	void mainLoop();
-	
-	/**
-	 * Deallocate the resources
-	 */
-	void cleanup();
 
 	/**
 	 * Set up a callback

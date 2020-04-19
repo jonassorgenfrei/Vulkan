@@ -14,6 +14,70 @@ const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME	// Swap Chaine for images
 };
 
+
+/// <summary>
+/// Creates a VkShaderModule Object.
+/// </summary>
+/// <param name="device">The device.</param>
+/// <param name="code">The buffer with the bytecode.</param>
+/// <returns></returns>
+VkShaderModule createShaderModule(VkDevice device, const std::vector<char>& code) {
+	VkShaderModuleCreateInfo createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	// size spezified in bytes
+	createInfo.codeSize = code.size();
+	// bytecode pointer is a uint32_t pointer
+	// performing a cast like this, one needs to ensure that the data satisfies the
+	// alignment requirements of uint32_t
+	// Luckily the data is stored in an std::vector where the default allocator already  
+	// ensures that the data satisfies the worst case alignment requirements
+	createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+	// Create a VkShaderModule Object
+	VkShaderModule shaderModule;
+
+	if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create shader module!");
+	}
+
+	return shaderModule;
+}
+
+/// <summary>
+/// Reads the binary data from file.
+/// </summary>
+/// <param name="filename">The filename.</param>
+/// <returns></returns>
+static std::vector<char> readFile(const std::string& filename) {
+	// will read all of the bytes from the specified file and return them
+	// in a byte array managed by std::vector
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+	// Flags:
+	//	ate: Start reading at the end of the file
+	//	binary: Read the files as binary file (avoid text transformations)
+
+	if (!file.is_open()) {
+		throw std::runtime_error("failed to open file!");
+	}
+
+	// use read position (at the end of the file) to determine 
+	size_t fileSize = (size_t)file.tellg();
+	// allocate the buffer
+	std::vector<char> buffer(fileSize);
+
+	// seek back to the beginning of the file and read all of the bytes at once
+	file.seekg(0);
+	file.read(buffer.data(), fileSize);
+
+	// close the file and return the bytes
+	file.close();
+
+	// DEBUG SHADER FILE SIZE
+	//std::cout << fileSize << std::endl;
+
+	return buffer;
+};
+
 // Enable ValidationLayers depending on Debug Level
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -542,6 +606,8 @@ void TriangleApplication::mainLoop() {
  * Deallocate the resources
  */
 void TriangleApplication::cleanup() {
+	// Destory Graphics Pipeline
+	vkDestroyPipeline(device, graphicsPipeline, nullptr);
 	// Destroy the Render Pipeline
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 	// Destroy the Render Pass Object
@@ -797,7 +863,46 @@ VkExtent2D TriangleApplication::chooseSwapExtent(const VkSurfaceCapabilitiesKHR&
 void TriangleApplication::createGraphicsPipeline()
 {
 	// Create Shader
-	Shader shader(device, "../shadercomp/vert.spv", "../shadercomp/frag.spv");
+	auto vertShaderCode = readFile("../shadercomp/vert.spv");
+	auto fragShaderCode = readFile("../shadercomp/frag.spv");
+
+	VkShaderModule vertShaderModule = createShaderModule(device, vertShaderCode);
+	VkShaderModule fragShaderModule = createShaderModule(device, fragShaderCode);
+
+	// Vertex Shader
+	/////
+
+	// Shader Stage Creation (assign the shaders to a the VkPipelineShaderStageCreateInfo structures)
+	VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+	// setting the pipeline stage the shader is going to be used in
+	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	// Shader Type
+	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+
+	// specify the shader Module
+	vertShaderStageInfo.module = vertShaderModule;
+	vertShaderStageInfo.pName = "main";	// function to invoke, known as the entrypoint
+	// optional member, used to specify values for shader constants
+	//vertShaderStageInfo.pSpecializationInfo 
+
+	// Fragment Shader		
+	/////
+
+	// Shader Stage Creation (assign the shaders to a the VkPipelineShaderStageCreateInfo structures)
+	VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+	// setting the pipeline stage the shader is going to be used in
+	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	// Shader Type
+	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	// specify the shader Module
+	fragShaderStageInfo.module = fragShaderModule;
+	fragShaderStageInfo.pName = "main";	// function to invoke, known as the entrypoint
+
+
+
+	// Array to containe the Shader structs
+	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
 	// describes the format of the vertex data that will be passed to the 
 	// vertex shader
@@ -978,29 +1083,108 @@ void TriangleApplication::createGraphicsPipeline()
 		throw std::runtime_error("failed to create pipeline layout!");
 	}
 
+	// Combining the Pipeline Setups
+	// -----------------------------
+	VkGraphicsPipelineCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount = 2;
+	// Shader array referencing
+	pipelineInfo.pStages = shaderStages; 
+	// referencing all of the fixed function stages
+	pipelineInfo.pVertexInputState = &vertexInputInfo;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterizer;
+	pipelineInfo.pMultisampleState = &multisampling;
+	pipelineInfo.pDepthStencilState = nullptr; // Optional
+	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDynamicState = nullptr; // Optional
+	// referencing the pipeline Layout
+	pipelineInfo.layout = pipelineLayout;
+	// reference to the render pass and the index of the sub pass where 
+	// this graphics pipeline will be used
+	pipelineInfo.renderPass = renderPass;
+	pipelineInfo.subpass = 0;
+	// Used for pipeline derivatives, to be less expensive when they have much functionality in common
+	// Only used if the VK_PIPELINE_CREATE_DERIVATIVE_BIT flag also specified in the flags field of 
+	// VkGraphicsPipelineCreateInfo
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional; handle to existing pipeline
+	pipelineInfo.basePipelineIndex = -1; // Optional; referencing another pipeline that is about to be created by index
+
+	// Create the graphics pipeline
+	// the Function is designed to take multiple VkGraphicsPipelineCreateInfo objects and ceate multiple VkPipeline objects in a single call
+	// The second argument references an optional VkPipelineCache Object; to use to store and reuse data relevant to pipeline creation across
+	// multiple calls to vkCreateGraphicsPipelines and even across program executions if the cache is stored to a file.
+	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create graphics pipeline!");
+	}
+
+	// clean up temporary Shader Modules
+	vkDestroyShaderModule(device, fragShaderModule, nullptr);
+	vkDestroyShaderModule(device, vertShaderModule, nullptr);
 }
 
 void TriangleApplication::createRenderPass()
 {
+	// Creating a color attachment
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = swapChainImageFormat;
+	colorAttachment.format = swapChainImageFormat;	// set color attachment to swap chain attachment
+	// 1 Sample (since no multisampling)
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	// set what to do with the data
+	// Load Operations:
+	// VK_ATTACHMENT_LOAD_OP_LOAD - preserve the existing contents of the attachments
+	// VK_ATTACHMENT_LOAD_OP_CLEAR - clear the values to a constant at the start
+	// VK_ATTACHMENT_LOAD_OP_DONT_CARE - existing contents are undefined (dont care)
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	// Store Operations:
+	// VK_ATTACHMENT_STORE_OP_STORE - rendered contents will be stored in memory 
+	//                                and can be read later
+	// VK_ATTACHMENT_STORE_OP_DONT_CARE - contents of the framebuffer will be 
+	//                                    undefined after the rendering operation
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	// set what to do with the stencil data
+	// nothing will be done with stencil buffer in this programm
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	// most common layouts:
+	// VK_IMAGE_LAYOUT_UNDEFINED - the content of the image are not guaranteed to be preserved
+	// VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL - images used as color attachments
+	// VK_IMAGE_LAYOUT_PRESENT_SRC_KHR - images to be presented in the swap chain
+	// VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL - images to be used as destination for
+	//                                        a memory copy operation
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // specify which layout the image will have before the render pass begins
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // specify to automatically transition to when the render pass finishes
 
+	// Subpasses and attachment references
+	// -----------------------------------
+	// Using a single subpass
+	// Subpass reference
 	VkAttachmentReference colorAttachmentRef = {};
+	// which parameter to reference by its index in the 
+	// attachment descriptions array
 	colorAttachmentRef.attachment = 0;
+	// specification which layout the attachments has during a subpass that
+	// uses this reference
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	// description of subpass
 	VkSubpassDescription subpass = {};
+	// explicit about this being a graphics subpass
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	// Specify the reference to the color attachment
 	subpass.colorAttachmentCount = 1;
+	// the following types of attachments can be reference by a subpass
+	// pInputAttachments - Attachments that a read from a shader
+	// pResolveAttachments - Attachments used for multisampling color attachments
+	// pDepthStencilAttachments - Attachment for depth and stencil data
+	// pPreserveAttachments - Attachments that are not used by this subpass,
+	//                        but for which the data must be preserved
 	subpass.pColorAttachments = &colorAttachmentRef;
 
+	// Render pass
+	// -----------
+	// create Render Object by filling in an array of attachments and subpasses
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassInfo.attachmentCount = 1;
