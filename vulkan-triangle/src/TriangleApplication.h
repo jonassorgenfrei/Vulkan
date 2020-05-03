@@ -58,6 +58,8 @@ struct SwapChainSupportDetails {
 class TriangleApplication {
 public:
 	void run();
+
+	
 private:
 	// -------------------------
 	// Class Memebers
@@ -95,10 +97,22 @@ private:
 	/* Swap Chain Extent Object */
 	VkExtent2D swapChainExtent;
 
+	/* Stores the command pool which mangages the memory */
+	VkCommandPool commandPool;
+	/* Stores a List of command Buffers for every image in the swap chain,
+	 * Note: they will be automatically freed when their command pool is 
+	 * destroyed, there is no explicit cleanup necessary! */
+	std::vector<VkCommandBuffer> commandBuffers;
+
 	/** 
 	 * Object to View into an image 
 	 * it describes how to access the image and which part of the image to access */
 	std::vector<VkImageView> swapChainImageViews;
+
+	/**
+	 * Member that holds the Framebuffers
+	 */
+	std::vector<VkFramebuffer> swapChainFramebuffers;
 
 	/**
 	 * Render Pass Object to store Information about Framebuffers
@@ -137,6 +151,12 @@ private:
 	void cleanup();
 
 	/**
+	 * Creates a Framebuffer Object
+	 * for all of the images in the swap chaine; which can be used at drawing time
+	 */
+	void createFramebuffers();
+
+	/**
 	 * Creates a basic image view in the swap chain
 	 */
 	void createImageViews();
@@ -160,11 +180,34 @@ private:
 	 * Creates logical Device to interface with it
 	 */
 	void createLogicalDevice();
+	
+	/**
+	 * Creates a command pool which manages the memory used to store
+	 * the buffers and allocates command buffers
+	 * Commanfs will be used throughout the programm to draw things on the screen
+	 */
+	void createCommandPool();
 
+	/**
+	 * Allocate command buffers and records drawing commands
+	 */
+	void createCommandBuffers();
+
+	/**
+	 * Function that will be called from the main loop to put the triangle
+	 * on the screen
+	 */
+	void drawFrame();
+
+	/**
+	 * Rates the device Suitabiliy
+	 * @param device
+	 */
 	int rateDeviceSuitability(VkPhysicalDevice device);
 
 	/**
 	 * Function to poplate the SwapChainSupportDetails Struct
+	 * @param device 
 	 */
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
 
@@ -172,20 +215,25 @@ private:
 	 * Base device suitability checks
 	 * Evaluation function for graphic cars
 	 * Check if they are suitable for the operations to be performed
+	 * @param device
 	 */
 	bool isDeviceSuitable(VkPhysicalDevice device);
 
 	/**
 	 * Check if the exteions are supported by the hardware
+	 * @parm device
 	 */
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device);
 
 	/*
 	 * Check what queue families are supported by the device and which one of these supports the commands to be used
+	 * @param device
 	 */
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
 	
-	/**/
+	/**
+	 *
+	 */
 	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
 	/*
@@ -216,17 +264,20 @@ private:
 
 	/**
 	 * Chooses the Surface format (color depth)
+	 * @param availableFormats
 	 */
 	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
 
 	/**
 	 * Choose the presentation modes (conditions for "swapping" images to the screen)
+	 * @param availablePresentModes
 	 */
 	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
 
 	/**
 	 * Swap extent (resolution of images in swap chain)
 	 * Always exavtly equal to the resolution of the window that we're drawing to
+	 * @param capabilities
 	 */
 	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 

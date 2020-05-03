@@ -120,6 +120,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
 
 
 /* --- Public --- */
+
 void TriangleApplication::run() {
 	initWindow();
 	initVulkan();
@@ -153,18 +154,22 @@ void TriangleApplication::initVulkan() {
 	setupDebugCallback();
 	createSurface();
 	pickPhysicalDevice();
-	// Create Logical Device to interface with it
+	// create logical device to interface with it
 	createLogicalDevice();
-	// Create Swap Chain
+	// create swap chain
 	createSwapChain();
 	createImageViews();
-	// create a Render Pass Object
+	// create a render pass object
 	createRenderPass();
-	// Create Graphic Pipeline for rendering with Vulkan
+	// create draphic pipeline for rendering with Vulkan
 	createGraphicsPipeline();
+	// create Framebuffer object
+	createFramebuffers();
+	// create command pool object
+	createCommandPool();
+	// create command Buffers
+	createCommandBuffers();
 }
-
-
 
 void TriangleApplication::createImageViews()
 {
@@ -410,6 +415,122 @@ void TriangleApplication::createLogicalDevice() {
 	vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 }
 
+void TriangleApplication::createCommandPool()
+{
+	QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+	VkCommandPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+	// posible command pool flags
+	// VK_COMMAND_POOL_CREATE_TRANSIENT_BIT: hint that command buffers are rerecorded 
+	//										with new commands very often (may change memory allocation behavior)
+	// VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: allow command buffers to rerecord 
+	//										individually, without this flag they all have to 
+	//                                      to be reset together
+	poolInfo.flags = 0; // Optional
+
+	// actually create command pool
+	if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create command pool!");
+	}
+}
+
+void TriangleApplication::createCommandBuffers()
+{
+	// allocate commandBuffers for each swap chaine image
+	commandBuffers.reserve(swapChainFramebuffers.size());
+
+	VkCommandBufferAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool = commandPool;
+	// specify if the allocated command buffers are:
+	// VK_COMMAND_BUFFER_LEVEL_PRIMARY: can be submitted to a queue for execution, 
+	//									but cannot be called from other 
+	//									command buffers
+	// VK_COMMAND_BUFFER_LEVEL_SECONDARY: cannot be submitted directly but can be called from primary
+	//									command buffers (it's helpfull to reuse common operations from
+	//									primary command buffers)
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+
+	if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+		throw std::runtime_error("failed to allocate command buffers!");
+	}
+
+	// begin recording command buffer 
+	for (size_t i = 0; i < commandBuffers.size(); i++)
+	{
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		// specify how the command buffer should be used
+		// VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT: 
+		//		command buffer will be rerecorded after executing it once
+		// VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT
+		//		secondary command buffer that will be entirely within a single render pass
+		// VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
+		//		command buffer can be resubmitted while its also already pending execution
+		beginInfo.flags = 0; // Optional
+		// only relevant for secondary command buffers; 
+		// specifies which state to inherit from the calling primary command buffers
+		beginInfo.pInheritanceInfo = nullptr; // Optional
+
+		if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to begin recording command buffers!");
+		}
+
+		// configure render pass
+		VkRenderPassBeginInfo renderPassInfo{};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		// renderpass itself
+		renderPassInfo.renderPass = renderPass;
+		// attachment to bind
+		renderPassInfo.framebuffer = swapChainFramebuffers[i];
+
+		// define the size of the render area (pixels outside will have undefined values)
+		// best performance when it matches the size of the attachment
+		renderPassInfo.renderArea.offset = { 0, 0 };
+		renderPassInfo.renderArea.extent = swapChainExtent;
+
+		//define the clear value to use for VK_ATTACHMENT_LOAD_OP_CLEAR
+		VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };	// Define black with 100% opacity
+		renderPassInfo.clearValueCount = 1;
+		renderPassInfo.pClearValues = &clearColor;
+
+		// begin render pass
+		// the final parameter contols ow the drawing commands will be provided
+		// VK_SUBPASS_CONTENTS_INLINE: will be embedded in the primary command buffer itself and 
+		//								no secondary command will be executed 
+		// VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS: will be executed from the secondary 
+		//												command buffers
+		vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+			// bind graphics pipeline
+			// secondary parameter specifies if the pipeline object is a graphics or compute pipeline
+			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+			// Define Draw function
+			// Parameters:
+			//	Command Buffer
+			//	vertexCount:	3 Vertices to define a triangle
+			//	instanceCount:	1 if no instance rendering should be used
+			//	firstVertex:	offset into the vertex buffer, defines the lowest value of gl_VertexIndex
+			//	firstInstance:	offset for instanced rendering, defines the lowest value fo gl_InstanceIndex
+			vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+		// end the render pass
+		vkCmdEndRenderPass(commandBuffers[i]);
+
+		// finishe recording the command buffers
+		if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
+			throw std::runtime_error("failed to record command buffer!");
+		}
+	}
+}
+
+void TriangleApplication::drawFrame()
+{
+
+}
+
 int TriangleApplication::rateDeviceSuitability(VkPhysicalDevice device) {
 	VkPhysicalDeviceProperties deviceProperties;
 	VkPhysicalDeviceFeatures deviceFeatures;
@@ -599,6 +720,7 @@ void TriangleApplication::mainLoop() {
 	while (!glfwWindowShouldClose(window)) {
 		//
 		glfwPollEvents();
+		drawFrame();
 	}
 }
 
@@ -606,7 +728,13 @@ void TriangleApplication::mainLoop() {
  * Deallocate the resources
  */
 void TriangleApplication::cleanup() {
-	// Destory Graphics Pipeline
+	vkDestroyCommandPool(device, commandPool, nullptr);
+
+	// Destroy the created Framebuffers
+	for (auto framebuffer : swapChainFramebuffers) {
+		vkDestroyFramebuffer(device, framebuffer, nullptr);
+	}
+	// Destroy Graphics Pipeline
 	vkDestroyPipeline(device, graphicsPipeline, nullptr);
 	// Destroy the Render Pipeline
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -638,6 +766,41 @@ void TriangleApplication::cleanup() {
 	glfwDestroyWindow(window);
 
 	glfwTerminate();
+}
+
+/// <summary>
+/// Creates the framebuffers.
+/// </summary>
+void TriangleApplication::createFramebuffers()
+{
+	// resize the container to hold all of the framebuffers
+	swapChainFramebuffers.resize(swapChainImageViews.size());
+
+	// iterate through the image views and create frambuffers from them
+	for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+		VkImageView attachments[] = {
+			swapChainImageViews[i]
+		};
+
+		VkFramebufferCreateInfo framebufferInfo{};
+		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		// set renderPass with which the framebuffer needs to be compatible with
+		framebufferInfo.renderPass = renderPass;
+		// specification of the VkImageView Objects the should be bound to the 
+		// respective attachment description in the render pass pAttachment array
+		framebufferInfo.attachmentCount = 1;
+		framebufferInfo.pAttachments = attachments;
+
+		framebufferInfo.width = swapChainExtent.width;
+		framebufferInfo.height = swapChainExtent.height;
+		// number of layers in image arrays
+		framebufferInfo.layers = 1;
+
+		if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create framebuffer!");
+		}
+	}
+
 }
 
 /*

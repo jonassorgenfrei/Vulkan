@@ -8,6 +8,7 @@ int main() {
 
 	try {
 		app.run();
+		app.drawFame();
 	}
 	catch (const std::exception& e) {
 		std::cerr << e.what() << std::endl;
