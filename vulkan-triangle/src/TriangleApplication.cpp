@@ -169,6 +169,8 @@ void TriangleApplication::initVulkan() {
 	createCommandPool();
 	// create command Buffers
 	createCommandBuffers();
+	// create semaphores
+	createSemaphores();
 }
 
 void TriangleApplication::createImageViews()
@@ -439,7 +441,7 @@ void TriangleApplication::createCommandPool()
 void TriangleApplication::createCommandBuffers()
 {
 	// allocate commandBuffers for each swap chaine image
-	commandBuffers.reserve(swapChainFramebuffers.size());
+	commandBuffers.resize(swapChainFramebuffers.size());
 
 	VkCommandBufferAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -452,6 +454,7 @@ void TriangleApplication::createCommandBuffers()
 	//									command buffers (it's helpfull to reuse common operations from
 	//									primary command buffers)
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	std::cout<< " CBC" << commandBuffers.size();
 	allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 
 	if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
@@ -528,7 +531,70 @@ void TriangleApplication::createCommandBuffers()
 
 void TriangleApplication::drawFrame()
 {
+	//vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
+	// aquiring an image from the swap chain
+	// ------------------------------------
+	uint32_t imageIndex;
+	// parameters:
+	//	device - logical device
+	//	swapChain - swap chain from which the image should be acquired
+	//	timeout - timeout in nanoseconds for an image to become available (UINT64_MAX disables the timeout)
+	//	synchronication object (semaphore) - to be signaled when the presentation engine is finished
+	//  synchronication object (fence) - to be signaled when the presentation engine is finished
+	//	index - index of the swap chain image in the swapChainImages Array
+	vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+	// submitting the command buffer
+	// -----------------------------
+	// Queue submission and synchronization configuration
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	
+	// specify which semaphores to wait on before execution begins
+	VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+	// specify which stages of the pipeline to wait
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };	// Stage: Writing colors to image buffer
+	submitInfo.waitSemaphoreCount = 1;
+	// each entry in the wait Stages array corresponds to the semaphore with the same index in pWaitEmaphores
+	submitInfo.pWaitSemaphores = waitSemaphores;
+	submitInfo.pWaitDstStageMask = waitStages;
+
+	// specify command buffers to actually submit for execution
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+
+	// specify which semaphores to signale once the command buffers(s) have finish execution
+	VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = signalSemaphores;
+
+	// submit the command buffer to the graphics queue
+	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+		throw std::runtime_error("failed to submit draw command buffer!");
+	}
+
+	// Presentation
+	// ------------
+	// submitting the result back to the swap chain to have it show up on the screen
+
+	VkPresentInfoKHR presentInfo{};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+	// specify which semaphores ot wait on before presentation
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores = signalSemaphores;
+
+	// specify the swap chains to present images to and the index of the image for each swap chain 
+	VkSwapchainKHR swapChains[] = { swapChain };
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = swapChains;
+	presentInfo.pImageIndices = &imageIndex;
+	
+	// specify an array of VkResult values  to check for every individual swap chain if presentation was successfull 
+	presentInfo.pResults = nullptr; // Optional, when using just one swap chain
+	// submit the request to present an image to the swap chain
+	vkQueuePresentKHR(presentQueue, &presentInfo);
 }
 
 int TriangleApplication::rateDeviceSuitability(VkPhysicalDevice device) {
@@ -722,12 +788,21 @@ void TriangleApplication::mainLoop() {
 		glfwPollEvents();
 		drawFrame();
 	}
+
+	// wait until operations are done
+	vkDeviceWaitIdle(device);
+
+
 }
 
 /*
  * Deallocate the resources
  */
 void TriangleApplication::cleanup() {
+	// clean up semaphores 
+	vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+	vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+
 	vkDestroyCommandPool(device, commandPool, nullptr);
 
 	// Destroy the created Framebuffers
@@ -1345,6 +1420,23 @@ void TriangleApplication::createRenderPass()
 	//                        but for which the data must be preserved
 	subpass.pColorAttachments = &colorAttachmentRef;
 
+	// dependency 
+	// ---------
+
+	// Make the renderpass wait for the VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT stage
+
+
+	VkSubpassDependency dependency{};
+	// specify indices of the dependency and the dependent subpass 
+	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;	// implicit subpass before or after the render pass depending on wheter it is specified in srcSubpass or dstSubpass
+	dependency.dstSubpass = 0;	// subpass which is the first and only one
+	// specify the operation to wait on and the stage in which these opeations occur
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;	// waiting for the color attachment output stage
+	dependency.srcAccessMask = 0;
+	// 
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
 	// Render pass
 	// -----------
 	// create Render Object by filling in an array of attachments and subpasses
@@ -1354,8 +1446,24 @@ void TriangleApplication::createRenderPass()
 	renderPassInfo.pAttachments = &colorAttachment;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
+	// specify an array of dependencies
+	renderPassInfo.dependencyCount = 1;
+	renderPassInfo.pDependencies = &dependency;
 
 	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create render pass!");
+	}
+}
+
+void TriangleApplication::createSemaphores()
+{
+	// create semaphores
+	VkSemaphoreCreateInfo semaphoreInfo{};
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+		vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS)
+	{
+		throw std::runtime_error("failed to create semaphores!");
 	}
 }

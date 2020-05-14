@@ -126,6 +126,15 @@ private:
 	VkPipelineLayout pipelineLayout;
 
 	VkPipeline graphicsPipeline;
+
+
+	/**
+	  * Semaphores
+	  */
+
+	VkSemaphore imageAvailableSemaphore;	// signal that an image has been acquired and is ready for rendering
+	VkSemaphore renderFinishedSemaphore;	// signal that rendering has finished and presentation can happen
+
 	// -------------------------
 	// Functions
 	// -------------------------
@@ -196,6 +205,9 @@ private:
 	/**
 	 * Function that will be called from the main loop to put the triangle
 	 * on the screen
+	 * - Aquires an image from the swap chain
+	 * - Execute the command buffer with that image as attachment in the framebuffer
+	 * - Return the image to the swap chain for presentation
 	 */
 	void drawFrame();
 
@@ -293,6 +305,11 @@ private:
 	 * should be handled throughout the rendering operations
 	 */
 	void createRenderPass();
+
+	/**
+	 * Creates Semaphores
+	 */
+	void createSemaphores();
 
 	/*
 	 * Callback Function for prototype PFN_vkDebugUtilsMessengercallbackExt
