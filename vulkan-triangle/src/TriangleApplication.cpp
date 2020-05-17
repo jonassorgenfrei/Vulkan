@@ -18,7 +18,13 @@ const std::vector<const char*> validationLayers = {
 const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME	// Swap Chaine for images
 };
-
+/**
+ * GLFW Resize Window callback to set class memember flag 
+ */
+static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+	auto app = reinterpret_cast<TriangleApplication*>(glfwGetWindowUserPointer(window));
+	app->framebufferResized = true;
+}
 
 /// <summary>
 /// Creates a VkShaderModule Object.
@@ -137,10 +143,14 @@ void TriangleApplication::initWindow() {
 	// Not create an OpenGL context 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	// Disable window Resizing
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 	// Initialize the Window
 	//  4. parameter specifiy Monitor to open Window on.
 	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+	// glfw function to stroe and arbitrary pointer inside (in this case this)
+	glfwSetWindowUserPointer(window, this);
+	// set up resize callback
+	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 }
 
 /*
@@ -452,7 +462,6 @@ void TriangleApplication::createCommandBuffers()
 	//									command buffers (it's helpfull to reuse common operations from
 	//									primary command buffers)
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	std::cout<< " CBC" << commandBuffers.size();
 	allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 
 	if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
@@ -543,7 +552,20 @@ void TriangleApplication::drawFrame()
 	//	synchronication object (semaphore) - to be signaled when the presentation engine is finished
 	//  synchronication object (fence) - to be signaled when the presentation engine is finished
 	//	index - index of the swap chain image in the swapChainImages Array
-	vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore[currentFrame], VK_NULL_HANDLE, &imageIndex);
+	VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore[currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+	// check if swap chain needs to be recreated
+	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		// VK_ERROR_OUT_OF_DATE_KHR -  The swap chain has become incompatible with the surface and can no longer be used for rendering. 
+		// Usually happens after a window resize.
+		recreateSwapChain();
+		return;
+	}
+	else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+		//  VK_SUBOPTIMAL_KHR - The swap chain can still be used to successfully present to the surface, 
+		// but the surface properties are no longer matched exactly.
+		throw std::runtime_error("failed to acquire swap chain image!");
+	}
 
 	// Check if a previous frame is using this image (i.e. there is its fence to wait on)
 	if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
@@ -604,7 +626,15 @@ void TriangleApplication::drawFrame()
 	// specify an array of VkResult values  to check for every individual swap chain if presentation was successfull 
 	presentInfo.pResults = nullptr; // Optional, when using just one swap chain
 	// submit the request to present an image to the swap chain
-	vkQueuePresentKHR(presentQueue, &presentInfo);
+	result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+		framebufferResized = false;
+		recreateSwapChain();
+	}
+	else if (result != VK_SUCCESS) {
+		throw std::runtime_error("failed to present swap chain image!");
+	}
 
 	// advance current frame to the next
 	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -812,6 +842,7 @@ void TriangleApplication::mainLoop() {
  * Deallocate the resources
  */
 void TriangleApplication::cleanup() {
+	cleanupSwapChain();
 	// clean up semaphores 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(device, renderFinishedSemaphore[i], nullptr);
@@ -821,23 +852,6 @@ void TriangleApplication::cleanup() {
 	
 	vkDestroyCommandPool(device, commandPool, nullptr);
 
-	// Destroy the created Framebuffers
-	for (auto framebuffer : swapChainFramebuffers) {
-		vkDestroyFramebuffer(device, framebuffer, nullptr);
-	}
-	// Destroy Graphics Pipeline
-	vkDestroyPipeline(device, graphicsPipeline, nullptr);
-	// Destroy the Render Pipeline
-	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-	// Destroy the Render Pass Object
-	vkDestroyRenderPass(device, renderPass, nullptr);
-	// destory explicitly created image views 
-	for (auto imageView : swapChainImageViews) {
-		vkDestroyImageView(device, imageView, nullptr);
-	}
-
-	// clean up the swap chain
-	vkDestroySwapchainKHR(device, swapChain, nullptr);
 	// destroy logical device
 	vkDestroyDevice(device, nullptr);
 
@@ -1104,7 +1118,12 @@ VkExtent2D TriangleApplication::chooseSwapExtent(const VkSurfaceCapabilitiesKHR&
 		return capabilities.currentExtent;
 	}
 	else {
-		VkExtent2D actualExtent = { WIDTH, HEIGHT };
+		int width, height;
+		// query current size of the framebuffer
+		glfwGetFramebufferSize(window, &width, &height);
+
+		VkExtent2D actualExtent = { static_cast<uint32_t>(width),
+			static_cast<uint32_t>(height) };
 
 		// clamp the value of WIDTH and HEIGHT
 		actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
@@ -1501,4 +1520,57 @@ void TriangleApplication::createSyncObjects()
 			throw std::runtime_error("failed to create synchronization objects for a frame!");
 		}
 	}
+}
+
+void TriangleApplication::recreateSwapChain()
+{
+	// handle window minimization
+	int width = 0, height = 0;
+	glfwGetFramebufferSize(window, &width, &height);
+	while (width == 0 || height == 0) {
+		glfwGetFramebufferSize(window, &width, &height);
+		glfwWaitEvents();
+	}
+
+	// wait until resources might be in use 
+	vkDeviceWaitIdle(device);
+	
+	cleanupSwapChain();
+
+	// (re)-create swap chain it self
+	createSwapChain();
+	// recreate images views since they are based on the swap chain
+	createImageViews();
+	// recreat the renderpass because it depends on the format of the swap chain images
+	createRenderPass();
+	// since scissor and rectangle size is specified re create graphics Pipeline
+	createGraphicsPipeline();
+	// Framebuffer and Command buffer depends on swap chain images
+	createFramebuffers();
+	createCommandBuffers();
+}
+
+void TriangleApplication::cleanupSwapChain()
+{
+	// Destroy the created Framebuffers
+	for (auto framebuffer : swapChainFramebuffers) {
+		vkDestroyFramebuffer(device, framebuffer, nullptr);
+	}
+	
+	// with this function the existing pool can be reused
+	vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+	// Destroy Graphics Pipeline
+	vkDestroyPipeline(device, graphicsPipeline, nullptr);
+	// Destroy the Render Pipeline
+	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+	// Destroy the Render Pass Object
+	vkDestroyRenderPass(device, renderPass, nullptr);
+	// destory explicitly created image views 
+	for (auto imageView : swapChainImageViews) {
+		vkDestroyImageView(device, imageView, nullptr);
+	}
+
+	// clean up the swap chain
+	vkDestroySwapchainKHR(device, swapChain, nullptr);
 }

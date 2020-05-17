@@ -62,6 +62,8 @@ class TriangleApplication {
 public:
 	void run();
 
+	// flag that need to be sent for update framebuffer explicit
+	bool framebufferResized = false;
 	
 private:
 	// -------------------------
@@ -322,6 +324,16 @@ private:
 	 * Creates Semaphores
 	 */
 	void createSyncObjects();
+
+	/** 
+	 * Recreates the Swap Chain.
+	 */
+	void recreateSwapChain();
+
+	/** 
+	 * Cleans up swap chain parts
+	 */
+	void cleanupSwapChain();
 
 	/*
 	 * Callback Function for prototype PFN_vkDebugUtilsMessengercallbackExt
