@@ -29,6 +29,9 @@
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
+/* max amount of frames to be processed*/
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 // struct for Queue families
 struct QueueFamilyIndices {
 	std::optional<uint32_t> graphicsFamily;
@@ -127,13 +130,22 @@ private:
 
 	VkPipeline graphicsPipeline;
 
+	// Variable to keep track of the current frame
+	size_t currentFrame = 0;
 
 	/**
-	  * Semaphores
+	  * Semaphores a set for each frame
 	  */
 
-	VkSemaphore imageAvailableSemaphore;	// signal that an image has been acquired and is ready for rendering
-	VkSemaphore renderFinishedSemaphore;	// signal that rendering has finished and presentation can happen
+	std::vector<VkSemaphore> imageAvailableSemaphore;	// signal that an image has been acquired and is ready for rendering
+	std::vector<VkSemaphore> renderFinishedSemaphore;	// signal that rendering has finished and presentation can happen
+
+	/**
+	 * Fences for CPU-GPU synchronization
+	 */
+	std::vector<VkFence> inFlightFences;
+	// track for each swap chain image if a frame in flight is currently using it
+	std::vector<VkFence> imagesInFlight;
 
 	// -------------------------
 	// Functions
@@ -309,7 +321,7 @@ private:
 	/**
 	 * Creates Semaphores
 	 */
-	void createSemaphores();
+	void createSyncObjects();
 
 	/*
 	 * Callback Function for prototype PFN_vkDebugUtilsMessengercallbackExt
